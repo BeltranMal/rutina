@@ -37,19 +37,32 @@ Costo: ~60 líneas en `program.ts`, cero datos nuevos, cero dependencias.
 
 Era un palote: líneas de ancho fijo entre articulaciones. Ahora cada hueso es una
 cápsula de radio distinto en cada punta —el muslo es grueso en la cadera y afina
-en la rodilla— con contorno oscuro para que los miembros superpuestos se separen,
-y el músculo que trabaja se rellena en el color de acento en vez de solo pintar
-la línea. En vista frontal el lado lejano va en un gris más apagado, así se lee
-la profundidad.
+en la rodilla— y el músculo que trabaja se rellena en el color de acento en vez
+de solo pintar la línea. En vista frontal el lado lejano va en un gris más
+apagado, así se lee la profundidad.
+
+Con las cápsulas cada una con su contorno el cuerpo parecía un maniquí de
+madera: se veían las costuras entre muslo y pantorrilla, entre torso y pierna.
+Ahora cada cadena se dibuja como **una sola silueta** —primero todas las piezas
+engordadas en el color del contorno, después los rellenos sin trazo—, así el
+contorno queda solo por fuera y adentro no hay uniones. Las cadenas que se
+superponen entre sí —el brazo sobre el torso, la pierna lejana sobre la
+cercana— van en grupos separados, para que ahí sí quede la línea que las
+distingue.
+
+El torso dejó de ser una cápsula sola: es pelvis y caja torácica con la cintura
+más angosta en el medio. Y la mano es un bloque corto en la prolongación del
+antebrazo, que antes terminaba en punta.
 
 ![Antes y ahora](figuras.png)
 
-El equipo que toca al cuerpo —manijas, barras, rodillos— pasó a dibujarse
-**encima** de la figura; la estructura de la máquina sigue detrás. Con el cuerpo
-macizo, si no, el rodillo del femoral quedaba tapado.
+El equipo que toca al cuerpo —manijas, barras, rodillos— se dibuja **encima** de
+la figura; la estructura de la máquina sigue detrás. Con el cuerpo macizo, si no,
+el rodillo del femoral quedaba tapado. La excepción es el arnés de hombros de la
+hack y los gemelos, que va detrás porque encima le tapa la cabeza a la figura.
 
-Sale de las mismas coordenadas de siempre: no hay datos nuevos ni assets. +0,3 KB
-gzip.
+Sale de las mismas coordenadas de siempre: no hay datos nuevos ni assets. +0,5 KB
+gzip contra el palote.
 
 No es el render 3D anatómico de apps como Kaizen. Ese estilo es media comercial
 de [Gym Visual](https://gymvisual.com/) —los datasets de GitHub que lo

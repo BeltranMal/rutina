@@ -66,15 +66,55 @@ function bone(a: Joint, b: Joint, wa: number, wb: number): string {
   return "M" + pts.join("L") + "Z";
 }
 
-function Part(props: { a: Joint; b: Joint; wa: number; wb: number; c: string }) {
+type Shape = { d: string; c: string };
+
+/** Elipse como path, para que la cabeza entre en el mismo pase que el resto. */
+function oval(at: Joint, rx: number, ry: number, tilt: number): string {
+  const pts: string[] = [];
+  for (let i = 0; i < 24; i++) {
+    const t = (Math.PI * 2 * i) / 24;
+    const x = Math.cos(t) * rx;
+    const y = Math.sin(t) * ry;
+    pts.push(
+      (at[0] + x * Math.cos(tilt) - y * Math.sin(tilt)).toFixed(2) +
+        "," +
+        (at[1] + x * Math.sin(tilt) + y * Math.cos(tilt)).toFixed(2)
+    );
+  }
+  return "M" + pts.join("L") + "Z";
+}
+
+/** Punto a fracción del camino de a a b. */
+function along(a: Joint, b: Joint, k: number): Joint {
+  return [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k];
+}
+
+/** Prolonga el segmento a→b más allá de b, para la mano. */
+function beyond(a: Joint, b: Joint, by: number): Joint {
+  const len = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+  return [b[0] + ((b[0] - a[0]) / len) * by, b[1] + ((b[1] - a[1]) / len) * by];
+}
+
+/**
+ * Dibuja un grupo de piezas como una sola silueta: primero todas engordadas en
+ * el color del contorno, después los rellenos sin trazo. Así el contorno queda
+ * solo por fuera y adentro no se ven las costuras entre muslo y pantorrilla, que
+ * es lo que hacía que el cuerpo pareciera un maniquí de madera.
+ *
+ * Cada cadena que se superpone con otra —el brazo sobre el torso, la pierna
+ * lejana sobre la cercana— va en su propio grupo, para que ahí sí quede la línea
+ * que las separa.
+ */
+function Silhouette(props: { shapes: Shape[] }) {
   return (
-    <path
-      d={bone(props.a, props.b, props.wa, props.wb)}
-      fill={props.c}
-      stroke={OUTLINE}
-      stroke-width={1.2}
-      stroke-linejoin="round"
-    />
+    <g>
+      {props.shapes.map((s, i) => (
+        <path key={"o" + i} d={s.d} fill={OUTLINE} stroke={OUTLINE} stroke-width={2.6} stroke-linejoin="round" />
+      ))}
+      {props.shapes.map((s, i) => (
+        <path key={"f" + i} d={s.d} fill={s.c} />
+      ))}
+    </g>
   );
 }
 
@@ -82,61 +122,72 @@ function Figure(props: { ex: Exercise; pose: Pose }) {
   const { ex, pose: p } = props;
   const hot = new Set(ex.primary.map((m) => (MUSCLE[m] ? MUSCLE[m][0] : "")).filter(Boolean));
   const color = (k: string) => (hot.has(k) ? ACCENT : BONE);
-  const parts: JSX.Element[] = [];
+  const cap = (a: Joint, b: Joint, wa: number, wb: number, c: string): Shape => ({ d: bone(a, b, wa, wb), c });
 
-  const head = (at: Joint, toward: Joint) => {
-    const a = Math.atan2(at[1] - toward[1], at[0] - toward[0]);
-    return (
-      <ellipse
-        cx={at[0]}
-        cy={at[1]}
-        rx={8.2}
-        ry={9.6}
-        transform={"rotate(" + ((a * 180) / Math.PI + 90).toFixed(1) + " " + at[0] + " " + at[1] + ")"}
-        fill={BONE}
-        stroke={OUTLINE}
-        stroke-width={1.2}
-      />
-    );
+  const leg = (hip: Joint, knee: Joint, ankle: Joint, toe: Joint, heel: Joint | undefined, dim: string | null): Shape[] => [
+    cap(hip, knee, 5.6, 4, dim ?? color("thigh")),
+    cap(knee, ankle, 4, 2.7, dim ?? color("shin")),
+    cap(ankle, toe, 3, 2.3, dim ?? BONE),
+    ...(heel ? [cap(ankle, heel, 3, 2.4, dim ?? BONE)] : [])
+  ];
+
+  const arm = (shoulder: Joint, elbow: Joint, hand: Joint, dim: string | null): Shape[] => [
+    cap(shoulder, elbow, 3.9, 2.9, dim ?? color("upperarm")),
+    cap(elbow, hand, 2.9, 2.3, dim ?? color("forearm")),
+    // La mano: un bloque corto en la prolongación del antebrazo. Sin esto el
+    // brazo termina en punta y es donde el ojo detecta que no es una persona.
+    cap(hand, beyond(elbow, hand, 4.5), 2.5, 2.2, dim ?? BONE)
+  ];
+
+  /** Pelvis y caja torácica por separado, con la cintura más angosta en el medio. */
+  const trunk = (hip: Joint, shoulder: Joint, wHip: number, wWaist: number, wChest: number): Shape[] => {
+    const waist = along(hip, shoulder, 0.45);
+    return [cap(hip, waist, wHip, wWaist, color("torso")), cap(waist, shoulder, wWaist, wChest, color("torso"))];
   };
 
   if (ex.view === "front") {
     const cx = 100;
     const hipC: Joint = [cx, p.hip[1]];
     const shC: Joint = [cx, p.shoulder[1]];
-    // Lado lejano primero, para que el cercano quede encima.
-    for (const flip of [true, false]) {
-      const f = (j: Joint): Joint => (flip ? mirror(j) : j);
-      const dim = flip ? SHADE : null;
-      parts.push(<Part a={f(p.hip)} b={f(p.knee)} wa={5.4} wb={3.9} c={dim ?? color("thigh")} />);
-      parts.push(<Part a={f(p.knee)} b={f(p.ankle)} wa={3.9} wb={2.5} c={dim ?? color("shin")} />);
-      parts.push(<Part a={f(p.ankle)} b={f(p.toe)} wa={2.5} wb={1.7} c={dim ?? BONE} />);
-    }
-    parts.push(<Part a={hipC} b={shC} wa={8.4} wb={9.6} c={color("torso")} />);
-    for (const flip of [true, false]) {
-      const f = (j: Joint): Joint => (flip ? mirror(j) : j);
-      const dim = flip ? SHADE : null;
-      // Clavícula y deltoides: sin esto el brazo queda flotando lejos del torso.
-      parts.push(<Part a={shC} b={f(p.shoulder)} wa={7.4} wb={4.4} c={dim ?? BONE} />);
-      parts.push(<Part a={f(p.shoulder)} b={f(p.elbow)} wa={4} wb={2.8} c={dim ?? color("upperarm")} />);
-      parts.push(<Part a={f(p.elbow)} b={f(p.hand)} wa={2.8} wb={2} c={dim ?? color("forearm")} />);
-    }
-    parts.push(<Part a={shC} b={[cx, p.head[1] + 7]} wa={4} wb={3.4} c={BONE} />);
-    parts.push(head([cx, p.head[1]], [cx, p.head[1] + 20]));
-  } else {
-    parts.push(<Part a={p.hip} b={p.knee} wa={5.6} wb={4} c={color("thigh")} />);
-    parts.push(<Part a={p.knee} b={p.ankle} wa={4} wb={2.6} c={color("shin")} />);
-    parts.push(<Part a={p.ankle} b={p.toe} wa={2.6} wb={1.7} c={BONE} />);
-    if (p.heel) parts.push(<Part a={p.ankle} b={p.heel} wa={2.6} wb={2} c={BONE} />);
-    parts.push(<Part a={p.hip} b={p.shoulder} wa={7.6} wb={8.8} c={color("torso")} />);
-    const neck: Joint = [p.head[0] + (p.head[0] - p.shoulder[0]) * 0.4, p.head[1] + 7];
-    parts.push(<Part a={p.shoulder} b={neck} wa={4} wb={3.2} c={BONE} />);
-    parts.push(head(p.head, p.shoulder));
-    parts.push(<Part a={p.shoulder} b={p.elbow} wa={3.7} wb={2.9} c={color("upperarm")} />);
-    parts.push(<Part a={p.elbow} b={p.hand} wa={2.9} wb={2.1} c={color("forearm")} />);
+    const far = (j: Joint): Joint => mirror(j);
+    const tilt = 0;
+    return (
+      <g>
+        <Silhouette
+          shapes={[
+            ...leg(far(p.hip), far(p.knee), far(p.ankle), far(p.toe), undefined, SHADE),
+            cap(shC, far(p.shoulder), 7.4, 4.4, SHADE),
+            ...arm(far(p.shoulder), far(p.elbow), far(p.hand), SHADE)
+          ]}
+        />
+        <Silhouette
+          shapes={[
+            ...leg(p.hip, p.knee, p.ankle, p.toe, undefined, null),
+            ...trunk(hipC, shC, 8.4, 7, 9.6),
+            cap(shC, [cx, p.head[1] + 7], 4, 3.4, BONE),
+            { d: oval([cx, p.head[1]], 8.2, 9.6, tilt), c: BONE }
+          ]}
+        />
+        <Silhouette shapes={[cap(shC, p.shoulder, 7.4, 4.4, BONE), ...arm(p.shoulder, p.elbow, p.hand, null)]} />
+      </g>
+    );
   }
 
-  return <g>{parts.map((el, i) => <g key={i}>{el}</g>)}</g>;
+  const neck: Joint = [p.head[0] + (p.head[0] - p.shoulder[0]) * 0.4, p.head[1] + 7];
+  const tilt = Math.atan2(p.head[1] - p.shoulder[1], p.head[0] - p.shoulder[0]) + Math.PI / 2;
+  return (
+    <g>
+      <Silhouette
+        shapes={[
+          ...leg(p.hip, p.knee, p.ankle, p.toe, p.heel, null),
+          ...trunk(p.hip, p.shoulder, 7.6, 6.4, 9),
+          cap(p.shoulder, neck, 4, 3.2, BONE),
+          { d: oval(p.head, 8.2, 9.6, tilt), c: BONE }
+        ]}
+      />
+      <Silhouette shapes={arm(p.shoulder, p.elbow, p.hand, null)} />
+    </g>
+  );
 }
 
 const PAD_FILL = "#171a22";
@@ -168,6 +219,13 @@ function Pad(props: { x: number; y: number; w: number; h: number; angle?: number
 // Lo que toca al cuerpo se dibuja encima de la figura; la estructura, detrás.
 const ON_TOP = new Set(["grip", "bar", "rollerPad", "dumbbell"]);
 
+function onTop(e: Equip): boolean {
+  // Excepción: el arnés de hombros de la hack y los gemelos va detrás, porque
+  // encima le tapa la cabeza a la figura.
+  if (e.type === "rollerPad" && e.at === "shoulder") return false;
+  return ON_TOP.has(e.type);
+}
+
 function Gear(props: { ex: Exercise; pose: Pose; layer: "back" | "front" }) {
   const { ex, pose: p } = props;
   const parts: JSX.Element[] = [];
@@ -176,7 +234,7 @@ function Gear(props: { ex: Exercise; pose: Pose; layer: "back" | "front" }) {
   const both = (j: Joint): Joint[] => (front ? [j, mirror(j)] : [j]);
 
   for (const e of ex.equip as Equip[]) {
-    if (ON_TOP.has(e.type) !== (props.layer === "front")) continue;
+    if (onTop(e) !== (props.layer === "front")) continue;
     if (e.type === "ground") {
       parts.push(<line x1={6} y1={186} x2={194} y2={186} stroke={STEEL} stroke-width={2.8} />);
     } else if (e.type === "frame" && e.pts) {
