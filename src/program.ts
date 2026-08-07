@@ -1744,15 +1744,131 @@ export function slotKey(week: number, exerciseId: string): string {
   return "w" + String(week) + ":" + exerciseId;
 }
 
-/** Interpola las dos poses del ejercicio. t va de 0 a 1. */
+function lerp(a: number, b: number, t: number): number {
+  return a + (b - a) * t;
+}
+
+function mix(a: Joint, b: Joint, t: number): Joint {
+  return [lerp(a[0], b[0], t), lerp(a[1], b[1], t)];
+}
+
+function dist(a: Joint, b: Joint): number {
+  return Math.hypot(b[0] - a[0], b[1] - a[1]);
+}
+
+/**
+ * Ubica la articulación del medio de una cadena de dos huesos (rodilla, codo)
+ * dados sus extremos y los largos. `side` es el signo del producto cruz en la
+ * pose original y decide para qué lado dobla, para que la rodilla no se invierta
+ * a mitad de camino.
+ */
+function solveMiddle(root: Joint, end: Joint, l1: number, l2: number, side: number): Joint {
+  const dx = end[0] - root[0];
+  const dy = end[1] - root[1];
+  const d = Math.hypot(dx, dy) || 1e-6;
+  // Estirado del todo o plegado más allá de lo posible: el codo queda sobre la recta.
+  const reach = Math.max(Math.abs(l1 - l2) + 1e-6, Math.min(d, l1 + l2 - 1e-6));
+  const a = (reach * reach + l1 * l1 - l2 * l2) / (2 * reach);
+  const h = Math.sqrt(Math.max(0, l1 * l1 - a * a));
+  const ux = dx / d;
+  const uy = dy / d;
+  const mx = root[0] + ux * a;
+  const my = root[1] + uy * a;
+  return [mx - uy * h * side, my + ux * h * side];
+}
+
+function cross(root: Joint, mid: Joint, end: Joint): number {
+  return (mid[0] - root[0]) * (end[1] - root[1]) - (mid[1] - root[1]) * (end[0] - root[0]);
+}
+
+/**
+ * Para qué lado dobla la cadena. Se mide en la pose más flexionada de las dos:
+ * con el miembro estirado los tres puntos son casi colineales y el signo del
+ * producto cruz es ruido, que es lo que invertía la rodilla en el femoral.
+ */
+function bendSide(a: Pose, b: Pose, root: string, mid: string, end: string): number {
+  const ca = cross(a[root], a[mid], a[end]);
+  const cb = cross(b[root], b[mid], b[end]);
+  const c = Math.abs(cb) > Math.abs(ca) ? cb : ca;
+  return c >= 0 ? -1 : 1;
+}
+
+/**
+ * Corrige una cadena de dos huesos (cadera-rodilla-tobillo, hombro-codo-mano).
+ * Hay dos clases de máquina y se distinguen solas mirando cuánto se mueve cada
+ * punto entre las dos poses:
+ *
+ * - **Aislamiento**: la articulación del medio no se mueve porque *es* el eje de
+ *   la máquina —la rodilla en el femoral, el codo en el predicador— y la punta
+ *   describe un arco alrededor de ella. Se gira la punta sobre el pivote.
+ * - **Empuje**: rodilla y codo van libres y los que manda la máquina son los
+ *   extremos —el pie sobre el riel de la prensa, la manija sobre el recorrido
+ *   del cable—. Se resuelve el punto del medio por cinemática inversa.
+ *
+ * En los dos casos el hueso conserva su largo, que es lo que la interpolación
+ * derecha rompía. Si ninguno de los dos modelos explica las poses dibujadas, se
+ * deja la interpolación lineal y listo.
+ */
+function solveChain(out: Pose, a: Pose, b: Pose, root: string, mid: string, end: string, t: number): void {
+  if (!a[root] || !a[mid] || !a[end] || !b[mid] || !b[root] || !b[end]) return;
+
+  const travelMid = dist(a[mid], b[mid]);
+  const travelEnd = dist(a[end], b[end]);
+  // Los extremos son los que mueve la máquina. Si ninguno se mueve, no hay nada
+  // que corregir: la cadena entera está quieta.
+  const travelEnds = Math.max(dist(a[root], b[root]), travelEnd);
+  if (travelEnds < 1) return;
+
+  if (travelMid < travelEnds * 0.25) {
+    out[end] = swing(out[mid], a[end], a[mid], b[end], b[mid], t);
+    return;
+  }
+
+  const side = bendSide(a, b, root, mid, end);
+  const l1a = dist(a[root], a[mid]);
+  const l2a = dist(a[mid], a[end]);
+  const l1b = dist(b[root], b[mid]);
+  const l2b = dist(b[mid], b[end]);
+
+  const fitsA = dist(solveMiddle(a[root], a[end], l1a, l2a, side), a[mid]);
+  const fitsB = dist(solveMiddle(b[root], b[end], l1b, l2b, side), b[mid]);
+  if (fitsA > 1 || fitsB > 1) return;
+
+  out[mid] = solveMiddle(out[root], out[end], lerp(l1a, l1b, t), lerp(l2a, l2b, t), side);
+}
+
+/** Gira un punto alrededor de un pivote, del ángulo de la pose A al de la pose B. */
+function swing(pivot: Joint, a: Joint, pa: Joint, b: Joint, pb: Joint, t: number): Joint {
+  const t0 = Math.atan2(a[1] - pa[1], a[0] - pa[0]);
+  const t1 = Math.atan2(b[1] - pb[1], b[0] - pb[0]);
+  const delta = ((t1 - t0 + Math.PI) % (2 * Math.PI)) - Math.PI;
+  const angle = t0 + delta * t;
+  const len = lerp(dist(pa, a), dist(pb, b), t);
+  return [pivot[0] + Math.cos(angle) * len, pivot[1] + Math.sin(angle) * len];
+}
+
+/**
+ * Interpola las dos poses del ejercicio. t va de 0 a 1.
+ *
+ * Los extremos —cadera, hombro, tobillo, mano— van en línea recta porque es la
+ * máquina la que los mueve: el pie viaja sobre el riel de la prensa y la manija
+ * sobre el recorrido del cable. Rodilla y codo, que no los sujeta nada, se
+ * resuelven por cinemática inversa, así describen un arco en vez de cortar
+ * camino por adentro. En t=0 y t=1 el resultado es exactamente la pose original.
+ */
 export function poseAt(ex: Exercise, t: number): Pose {
   const [a, b] = ex.poses;
   const out: Pose = {};
-  for (const k of Object.keys(a)) {
-    const pa = a[k];
-    const pb = b[k] ?? pa;
-    out[k] = [pa[0] + (pb[0] - pa[0]) * t, pa[1] + (pb[1] - pa[1]) * t];
+  for (const k of Object.keys(a)) out[k] = mix(a[k], b[k] ?? a[k], t);
+
+  solveChain(out, a, b, "hip", "knee", "ankle", t);
+  solveChain(out, a, b, "shoulder", "elbow", "hand", t);
+
+  // El pie pivotea sobre el tobillo; en los gemelos es todo el movimiento.
+  for (const k of ["toe", "heel"] as const) {
+    if (a[k] && b[k]) out[k] = swing(out.ankle, a[k], a.ankle, b[k], b.ankle, t);
   }
+
   return out;
 }
 

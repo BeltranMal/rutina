@@ -564,6 +564,8 @@ function Detail(props: {
 
       <MovementStage ex={ex} />
 
+      <RealPhotos ex={ex} />
+
       <div class="border-b border-[#23252f] px-5 py-4">
         <div class="mb-2.5 font-mono text-[9.5px] uppercase tracking-[0.16em] text-[#5f6377]">
           Serie {Math.min(nextSet, ex.sets)} de {ex.sets} · descanso {formatRest(ex.rest)}
@@ -759,6 +761,63 @@ function DataMenu(props: { state: State; onReplace: (next: State) => void }) {
               onChange={(e) => void onImport(e.currentTarget)}
             />
           </div>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Foto de referencia                                                  */
+/* ------------------------------------------------------------------ */
+
+/**
+ * El esquema dice cómo se mueve el cuerpo; la foto dice cómo es la máquina.
+ * Vienen de free-exercise-db (dominio público) y no son las máquinas de este
+ * gimnasio, así que van cerradas por defecto y solo se descargan si las abrís.
+ * El service worker las guarda al vuelo, así que una vez vistas quedan offline.
+ */
+function RealPhotos(props: { ex: Exercise }) {
+  const { ex } = props;
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => setOpen(false), [ex.id]);
+
+  return (
+    <div class="border-b border-[#23252f] px-5 py-4">
+      <button
+        type="button"
+        class="flex w-full items-center justify-between font-mono text-[9.5px] uppercase tracking-[0.16em] text-[#5f6377] hover:text-[#9296a8]"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+      >
+        <span>Foto de la máquina</span>
+        <span class="text-[13px] leading-none">{open ? "−" : "+"}</span>
+      </button>
+
+      {open ? (
+        <>
+          <div class="mt-3 grid grid-cols-2 gap-2">
+            {[0, 1].map((n) => (
+              <figure key={n} class="m-0">
+                <img
+                  src={import.meta.env.BASE_URL + "ref/" + ex.id + "-" + n + ".webp"}
+                  alt={ex.name + ", " + ex.labels[n].toLowerCase()}
+                  width={640}
+                  height={640}
+                  loading="lazy"
+                  decoding="async"
+                  class="block aspect-square w-full rounded-lg border border-[#23252f] object-cover"
+                />
+                <figcaption class="mt-1.5 font-mono text-[9.5px] uppercase tracking-[0.1em] text-[#5f6377]">
+                  {ex.labels[n]}
+                </figcaption>
+              </figure>
+            ))}
+          </div>
+          <p class="mt-2.5 text-[11.5px] leading-relaxed text-[#5f6377]">
+            Referencia del movimiento, no de tu gimnasio: la máquina de la foto puede ser otra.
+          </p>
         </>
       ) : null}
     </div>
