@@ -1,40 +1,69 @@
 # Los dibujos
 
-Estado al 2026-08-07. Es el trabajo pendiente más visible de la app.
+Estado al 2026-08-07.
 
-## Qué está mal hoy
+## Qué se arregló
 
-- **La animación va en línea recta.** Cada ejercicio guarda dos poses y se
-  interpola entre ellas, así que la rodilla viaja en línea recta entre extendida
-  y flexionada en vez de describir un arco. En la prensa y la sentadilla hack se
-  nota.
-- **La figura es un palote genérico.** Mismo esqueleto para los 18 ejercicios,
-  sin proporciones ni volumen. Sirve para leer la posición, no para entender la
-  técnica.
-- **Algunas máquinas son aproximadas.** La geometría se validó contra fotos
-  reales y ningún segmento de miembro cambia de largo entre poses, pero varias
-  máquinas están dibujadas de memoria y se parecen más a la categoría de máquina
-  que a la máquina del gimnasio.
+### La trayectoria de las articulaciones
 
-## Lo más barato que se puede hacer
+Antes cada ejercicio interpolaba en línea recta entre sus dos poses, así que la
+rodilla y el codo cortaban camino por adentro en vez de describir un arco, y los
+miembros se estiraban y encogían a mitad de la animación —hasta 25 px sobre un
+lienzo de 200 en el femoral tumbado—.
 
-Pasar de 2 poses a 3 o 4 por ejercicio. `poseAt()` ya interpola; hay que
-generalizarla a N fotogramas y agregar la pose intermedia. Cuesta ~100 bytes por
-ejercicio y arregla el punto 1 sin tocar nada más.
+`poseAt()` ahora clasifica cada cadena de dos huesos mirando cuánto se mueve
+cada punto entre las dos poses dibujadas:
 
-## Material OSS que sirve
+- **Máquinas de aislamiento** (femoral sentado y tumbado, predicador, pushdown,
+  martillo, pec deck, face pull): la articulación del medio no se mueve porque
+  *es* el eje de la máquina. La punta gira alrededor de ella.
+- **Máquinas de empuje** (prensa, hack, press de pecho y hombro, jalón, remo,
+  pullover): rodilla y codo van libres y los que manda la máquina son los
+  extremos —el pie sobre el riel, la manija sobre el recorrido del cable—. El
+  punto del medio se resuelve por cinemática inversa de dos huesos.
+- Si ninguno de los dos modelos reproduce las poses dibujadas, se deja la
+  interpolación lineal de antes.
 
-Se revisó qué hay dado vuelta antes de dibujar de cero.
+No se tocó una sola coordenada de `program.ts`: en `t=0` y `t=1` el resultado es
+**exactamente** la pose original (error máximo 0,0000), así que la geometría
+validada contra fotos sigue intacta. Lo único que cambia es el camino entre las
+dos. El largo de los miembros ya no se sale del rango de las poses (drift máximo
+0,07 px contra 25 px antes), y 17 de los 18 ejercicios tienen ahora una
+trayectoria distinta de la recta, de hasta 39 px de separación.
 
-| Fuente | Licencia | Qué tiene | Sirve para |
+Costo: ~60 líneas en `program.ts`, cero datos nuevos, cero dependencias.
+
+### La foto de la máquina
+
+El esquema dice cómo se mueve el cuerpo pero no alcanza para saber si estás
+parado frente a la máquina correcta. Cada ejercicio tiene ahora un panel
+plegable con dos fotos reales, inicio y fin, que coinciden con las dos fases que
+ya etiquetaba la animación.
+
+Van cerradas por defecto y con `loading="lazy"`, así que no se descargan hasta
+que las abrís: ~28 KB por ejercicio, 1 MB en total en el repo, 0 en la carga
+inicial. El service worker las cachea al vuelo, así que una vez vistas quedan
+disponibles offline.
+
+Las fotos salen de [`free-exercise-db`](https://github.com/yuhonas/free-exercise-db)
+(Unlicense, dominio público). El mapeo está en `scripts/fetch-ref-photos.mjs` y
+se puede regenerar con `node scripts/fetch-ref-photos.mjs`. Dos son
+aproximaciones: el dataset no tiene elevaciones laterales en máquina (se usa la
+versión en polea) ni remo con pecho apoyado (se usa el T-bar tumbado).
+
+## Qué sigue mal
+
+- **La figura es un palote genérico**, el mismo esqueleto para los 18
+  ejercicios, sin proporciones ni volumen. Sirve para leer la posición, no para
+  entender la técnica.
+- **Varias máquinas están dibujadas de memoria** y se parecen más a la categoría
+  de máquina que a la del gimnasio. Con las fotos ya en el repo, corregir las
+  coordenadas de `program.ts` mirándolas es trabajo mecánico y no suma bytes.
+
+## Material OSS: qué se miró y qué se descartó
+
+| Fuente | Licencia | Qué tiene | Veredicto |
 | --- | --- | --- | --- |
-| [yuhonas/free-exercise-db](https://github.com/yuhonas/free-exercise-db) | Unlicense (dominio público) | 873 ejercicios, 2 fotos reales cada uno (inicio y fin), JSON con músculos, equipo e instrucciones | **Referencia.** Cubre casi todas las máquinas del programa: hack squat, prensa, femoral sentado, jalón, remo, face pull, predicador, pushdown, crunch en máquina, gemelos. Son fotos del ángulo exacto que hace falta para corregir la geometría. |
-| [chaosbastler/opentraining-exercises](https://github.com/chaosbastler/opentraining-exercises) (dibujos de Everkinetic) | CC-BY-SA 3.0 | 71 ejercicios × 2 poses, ya en SVG | Poco. Casi todo es peso libre y pelota: de las 18 máquinas del programa solo aparece la prensa. Además cada SVG pesa ~56 KB sin optimizar y CC-BY-SA obliga a compartir igual cualquier derivado. |
-| [ExerciseDB](https://github.com/exercisedb/exercisedb-api), [exercises-dataset](https://github.com/hasaneyldrm/exercises-dataset) | API abierta, media de licencia poco clara | GIFs animados, 1000+ ejercicios | No. La animación ya la tenemos; lo que falta es exactitud, y la licencia de las imágenes no está clara. |
-
-**Cómo usarlo.** `free-exercise-db` como capa de referencia, no como assets de la
-app: se mira la foto y se corrigen las coordenadas de `program.ts`. Es lo mismo
-que ya se hizo a mano con la prensa (`b99cfa11` en el repo homelab) y no suma un
-solo byte al bundle ni ata el proyecto a una licencia viral. Meter las fotos en
-la app es la otra opción —ahora entran, GitHub Pages no tiene el límite de 1 MB
-que tenía Lakebed— pero mata la animación, que es lo distintivo.
+| [yuhonas/free-exercise-db](https://github.com/yuhonas/free-exercise-db) | Unlicense (dominio público) | 873 ejercicios, 2 fotos reales cada uno, JSON con músculos e instrucciones | **Elegido.** 16 de los 18 ejercicios tienen la máquina exacta. Sin atribución obligatoria ni licencia viral. |
+| [chaosbastler/opentraining-exercises](https://github.com/chaosbastler/opentraining-exercises) (dibujos de Everkinetic) | CC-BY-SA 3.0 | 71 ejercicios × 2 poses, ya en SVG | Descartado. Es casi todo peso libre y pelota: de las 18 máquinas del programa solo aparece la prensa. Además ~56 KB por SVG sin optimizar y CC-BY-SA obliga a compartir igual cualquier derivado. |
+| [ExerciseDB](https://github.com/exercisedb/exercisedb-api), [exercises-dataset](https://github.com/hasaneyldrm/exercises-dataset) | API abierta, media de licencia poco clara | GIFs animados, 1000+ ejercicios | Descartado. La animación ya la tenemos y ahora es correcta; lo que falta es exactitud, y la licencia de las imágenes no está clara. |

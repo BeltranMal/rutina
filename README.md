@@ -39,6 +39,7 @@ Push a `main` construye y publica en GitHub Pages (`.github/workflows/deploy.yml
 | `src/app.tsx` | Toda la UI, incluido el renderer SVG (`Figure`, `Gear`, `MovementStage`). |
 | `src/store.ts` | Estado en IndexedDB, saneado de lo que entra y export/import JSON. |
 | `public/sw.js` | Service worker, sin dependencias. |
+| `public/ref/` | Dos fotos por ejercicio, de dominio público. Se bajan solo si abrís el panel. Se regeneran con `node scripts/fetch-ref-photos.mjs`. |
 
 El renderer tiene un vocabulario chico de primitivas de máquina —`frame`, `pad`,
 `pulley`, `cableRun`, `stack`, `grip`, `bar`, `rollerPad`, `sled`, `dumbbell`,
@@ -47,7 +48,10 @@ esqueleto. Agregar una máquina es agregar datos en `program.ts`, no código.
 
 ## Lo que falta
 
-- **Los dibujos**, que son el punto flojo: ver [`docs/dibujos.md`](docs/dibujos.md).
+- **Los dibujos.** La trayectoria de las articulaciones ya está bien y cada
+  ejercicio tiene la foto real de la máquina, pero la figura sigue siendo un
+  palote genérico y varias máquinas están dibujadas de memoria:
+  ver [`docs/dibujos.md`](docs/dibujos.md).
 - **Sincronizar entre dispositivos.** Hoy el historial no sale de este navegador.
   La idea, si alguna vez molesta: Supabase con Google auth y RLS, sincronizando
   cuando hay red, con lo local siempre mandando. No está hecho ni empezado.
