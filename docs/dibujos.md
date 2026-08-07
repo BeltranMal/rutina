@@ -33,6 +33,29 @@ trayectoria distinta de la recta, de hasta 39 px de separación.
 
 Costo: ~60 líneas en `program.ts`, cero datos nuevos, cero dependencias.
 
+### La figura
+
+Era un palote: líneas de ancho fijo entre articulaciones. Ahora cada hueso es una
+cápsula de radio distinto en cada punta —el muslo es grueso en la cadera y afina
+en la rodilla— con contorno oscuro para que los miembros superpuestos se separen,
+y el músculo que trabaja se rellena en el color de acento en vez de solo pintar
+la línea. En vista frontal el lado lejano va en un gris más apagado, así se lee
+la profundidad.
+
+![Antes y ahora](figuras.png)
+
+El equipo que toca al cuerpo —manijas, barras, rodillos— pasó a dibujarse
+**encima** de la figura; la estructura de la máquina sigue detrás. Con el cuerpo
+macizo, si no, el rodillo del femoral quedaba tapado.
+
+Sale de las mismas coordenadas de siempre: no hay datos nuevos ni assets. +0,3 KB
+gzip.
+
+No es el render 3D anatómico de apps como Kaizen. Ese estilo es media comercial
+de [Gym Visual](https://gymvisual.com/) —los datasets de GitHub que lo
+redistribuyen lo dicen explícitamente— y no se puede usar en un repo público sin
+licencia propia.
+
 ### La foto de la máquina
 
 El esquema dice cómo se mueve el cuerpo pero no alcanza para saber si estás
@@ -53,9 +76,9 @@ versión en polea) ni remo con pecho apoyado (se usa el T-bar tumbado).
 
 ## Qué sigue mal
 
-- **La figura es un palote genérico**, el mismo esqueleto para los 18
-  ejercicios, sin proporciones ni volumen. Sirve para leer la posición, no para
-  entender la técnica.
+- **El cuerpo no tiene detalle anatómico.** Tiene volumen y proporciones, pero
+  los músculos son segmentos enteros pintados, no grupos musculares dibujados.
+  Un escalón más sería darle forma a cada grupo dentro del segmento.
 - **Varias máquinas están dibujadas de memoria** y se parecen más a la categoría
   de máquina que a la del gimnasio. Con las fotos ya en el repo, corregir las
   coordenadas de `program.ts` mirándolas es trabajo mecánico y no suma bytes.
