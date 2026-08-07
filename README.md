@@ -47,4 +47,7 @@ esqueleto. Agregar una máquina es agregar datos en `program.ts`, no código.
 
 ## Lo que falta
 
-Los dibujos son el punto flojo: ver [`docs/dibujos.md`](docs/dibujos.md).
+- **Los dibujos**, que son el punto flojo: ver [`docs/dibujos.md`](docs/dibujos.md).
+- **Sincronizar entre dispositivos.** Hoy el historial no sale de este navegador.
+  La idea, si alguna vez molesta: Supabase con Google auth y RLS, sincronizando
+  cuando hay red, con lo local siempre mandando. No está hecho ni empezado.
