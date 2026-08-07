@@ -1,0 +1,15 @@
+@import "tailwindcss";
+
+html {
+  background: #08080b;
+  color-scheme: dark;
+  -webkit-text-size-adjust: 100%;
+}
+
+/* En el celular la app se usa con la mano sudada: nada de zoom accidental por
+   doble tap ni de selección de texto al mantener apretado un botón de reps. */
+button {
+  touch-action: manipulation;
+  -webkit-user-select: none;
+  user-select: none;
+}
