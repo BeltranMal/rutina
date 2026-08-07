@@ -43,40 +43,97 @@ function mirror(p: Joint): Joint {
   return [200 - p[0], p[1]];
 }
 
+const OUTLINE = "#0b0c10";
+const SHADE = "#8b90a0";
+
+/**
+ * Un hueso como cápsula de radio distinto en cada punta: la pierna es gruesa
+ * arriba y afina en el tobillo. Las tapas se muestrean en vez de usar arcos SVG
+ * para no pelearse con los flags de barrido.
+ */
+function bone(a: Joint, b: Joint, wa: number, wb: number): string {
+  const base = Math.atan2(b[1] - a[1], b[0] - a[0]);
+  const pts: string[] = [];
+  const steps = 8;
+  for (let i = 0; i <= steps; i++) {
+    const t = base + Math.PI / 2 + (Math.PI * i) / steps;
+    pts.push((a[0] + Math.cos(t) * wa).toFixed(2) + "," + (a[1] + Math.sin(t) * wa).toFixed(2));
+  }
+  for (let i = 0; i <= steps; i++) {
+    const t = base - Math.PI / 2 + (Math.PI * i) / steps;
+    pts.push((b[0] + Math.cos(t) * wb).toFixed(2) + "," + (b[1] + Math.sin(t) * wb).toFixed(2));
+  }
+  return "M" + pts.join("L") + "Z";
+}
+
+function Part(props: { a: Joint; b: Joint; wa: number; wb: number; c: string }) {
+  return (
+    <path
+      d={bone(props.a, props.b, props.wa, props.wb)}
+      fill={props.c}
+      stroke={OUTLINE}
+      stroke-width={1.2}
+      stroke-linejoin="round"
+    />
+  );
+}
+
 function Figure(props: { ex: Exercise; pose: Pose }) {
   const { ex, pose: p } = props;
   const hot = new Set(ex.primary.map((m) => (MUSCLE[m] ? MUSCLE[m][0] : "")).filter(Boolean));
   const color = (k: string) => (hot.has(k) ? ACCENT : BONE);
-  const width = (k: string) => (hot.has(k) ? 4.6 : 3.4);
   const parts: JSX.Element[] = [];
+
+  const head = (at: Joint, toward: Joint) => {
+    const a = Math.atan2(at[1] - toward[1], at[0] - toward[0]);
+    return (
+      <ellipse
+        cx={at[0]}
+        cy={at[1]}
+        rx={8.2}
+        ry={9.6}
+        transform={"rotate(" + ((a * 180) / Math.PI + 90).toFixed(1) + " " + at[0] + " " + at[1] + ")"}
+        fill={BONE}
+        stroke={OUTLINE}
+        stroke-width={1.2}
+      />
+    );
+  };
 
   if (ex.view === "front") {
     const cx = 100;
     const hipC: Joint = [cx, p.hip[1]];
     const shC: Joint = [cx, p.shoulder[1]];
-    parts.push(<Limb a={hipC} b={shC} w={hot.has("torso") ? 6 : 5} c={color("torso")} />);
-    for (const flip of [false, true]) {
+    // Lado lejano primero, para que el cercano quede encima.
+    for (const flip of [true, false]) {
       const f = (j: Joint): Joint => (flip ? mirror(j) : j);
-      parts.push(<Limb a={f(p.hip)} b={f(p.knee)} w={width("thigh")} c={color("thigh")} />);
-      parts.push(<Limb a={f(p.knee)} b={f(p.ankle)} w={width("shin")} c={color("shin")} />);
-      parts.push(<Limb a={f(p.ankle)} b={f(p.toe)} w={3} c={BONE} />);
-      parts.push(<Limb a={shC} b={f(p.shoulder)} w={3.4} c={BONE} />);
-      parts.push(<Limb a={f(p.shoulder)} b={f(p.elbow)} w={width("upperarm")} c={color("upperarm")} />);
-      parts.push(<Limb a={f(p.elbow)} b={f(p.hand)} w={width("forearm")} c={color("forearm")} />);
+      const dim = flip ? SHADE : null;
+      parts.push(<Part a={f(p.hip)} b={f(p.knee)} wa={5.4} wb={3.9} c={dim ?? color("thigh")} />);
+      parts.push(<Part a={f(p.knee)} b={f(p.ankle)} wa={3.9} wb={2.5} c={dim ?? color("shin")} />);
+      parts.push(<Part a={f(p.ankle)} b={f(p.toe)} wa={2.5} wb={1.7} c={dim ?? BONE} />);
     }
-    parts.push(<Limb a={shC} b={[cx, p.head[1] + 8]} w={3} c={BONE} />);
-    parts.push(<circle cx={cx} cy={p.head[1]} r={9} fill="none" stroke={BONE} stroke-width={3.4} />);
+    parts.push(<Part a={hipC} b={shC} wa={8.4} wb={9.6} c={color("torso")} />);
+    for (const flip of [true, false]) {
+      const f = (j: Joint): Joint => (flip ? mirror(j) : j);
+      const dim = flip ? SHADE : null;
+      // Clavícula y deltoides: sin esto el brazo queda flotando lejos del torso.
+      parts.push(<Part a={shC} b={f(p.shoulder)} wa={7.4} wb={4.4} c={dim ?? BONE} />);
+      parts.push(<Part a={f(p.shoulder)} b={f(p.elbow)} wa={4} wb={2.8} c={dim ?? color("upperarm")} />);
+      parts.push(<Part a={f(p.elbow)} b={f(p.hand)} wa={2.8} wb={2} c={dim ?? color("forearm")} />);
+    }
+    parts.push(<Part a={shC} b={[cx, p.head[1] + 7]} wa={4} wb={3.4} c={BONE} />);
+    parts.push(head([cx, p.head[1]], [cx, p.head[1] + 20]));
   } else {
-    parts.push(<Limb a={p.ankle} b={p.knee} w={width("shin")} c={color("shin")} />);
-    parts.push(<Limb a={p.knee} b={p.hip} w={width("thigh")} c={color("thigh")} />);
-    parts.push(<Limb a={p.hip} b={p.shoulder} w={hot.has("torso") ? 6 : 5} c={color("torso")} />);
-    parts.push(<Limb a={p.ankle} b={p.toe} w={3} c={BONE} />);
-    if (p.heel) parts.push(<Limb a={p.ankle} b={p.heel} w={3} c={BONE} />);
-    parts.push(<Limb a={p.shoulder} b={p.elbow} w={width("upperarm")} c={color("upperarm")} />);
-    parts.push(<Limb a={p.elbow} b={p.hand} w={width("forearm")} c={color("forearm")} />);
-    const neck: Joint = [p.head[0] + (p.head[0] - p.shoulder[0]) * 0.4, p.head[1] + 8];
-    parts.push(<Limb a={p.shoulder} b={neck} w={3} c={BONE} />);
-    parts.push(<circle cx={p.head[0]} cy={p.head[1]} r={9} fill="none" stroke={BONE} stroke-width={3.4} />);
+    parts.push(<Part a={p.hip} b={p.knee} wa={5.6} wb={4} c={color("thigh")} />);
+    parts.push(<Part a={p.knee} b={p.ankle} wa={4} wb={2.6} c={color("shin")} />);
+    parts.push(<Part a={p.ankle} b={p.toe} wa={2.6} wb={1.7} c={BONE} />);
+    if (p.heel) parts.push(<Part a={p.ankle} b={p.heel} wa={2.6} wb={2} c={BONE} />);
+    parts.push(<Part a={p.hip} b={p.shoulder} wa={7.6} wb={8.8} c={color("torso")} />);
+    const neck: Joint = [p.head[0] + (p.head[0] - p.shoulder[0]) * 0.4, p.head[1] + 7];
+    parts.push(<Part a={p.shoulder} b={neck} wa={4} wb={3.2} c={BONE} />);
+    parts.push(head(p.head, p.shoulder));
+    parts.push(<Part a={p.shoulder} b={p.elbow} wa={3.7} wb={2.9} c={color("upperarm")} />);
+    parts.push(<Part a={p.elbow} b={p.hand} wa={2.9} wb={2.1} c={color("forearm")} />);
   }
 
   return <g>{parts.map((el, i) => <g key={i}>{el}</g>)}</g>;
@@ -102,13 +159,16 @@ function Pad(props: { x: number; y: number; w: number; h: number; angle?: number
       rx={Math.min(3, h / 2)}
       fill={PAD_FILL}
       stroke={props.c ?? STEEL}
-      stroke-width={2.2}
+      stroke-width={2.6}
       transform={props.angle ? "rotate(" + props.angle + " " + x + " " + y + ")" : undefined}
     />
   );
 }
 
-function Gear(props: { ex: Exercise; pose: Pose }) {
+// Lo que toca al cuerpo se dibuja encima de la figura; la estructura, detrás.
+const ON_TOP = new Set(["grip", "bar", "rollerPad", "dumbbell"]);
+
+function Gear(props: { ex: Exercise; pose: Pose; layer: "back" | "front" }) {
   const { ex, pose: p } = props;
   const parts: JSX.Element[] = [];
   const front = ex.view === "front";
@@ -116,15 +176,16 @@ function Gear(props: { ex: Exercise; pose: Pose }) {
   const both = (j: Joint): Joint[] => (front ? [j, mirror(j)] : [j]);
 
   for (const e of ex.equip as Equip[]) {
+    if (ON_TOP.has(e.type) !== (props.layer === "front")) continue;
     if (e.type === "ground") {
-      parts.push(<line x1={6} y1={186} x2={194} y2={186} stroke={STEEL} stroke-width={2.4} />);
+      parts.push(<line x1={6} y1={186} x2={194} y2={186} stroke={STEEL} stroke-width={2.8} />);
     } else if (e.type === "frame" && e.pts) {
       parts.push(
         <polyline
           points={pairs(e.pts).map((q) => q[0] + "," + q[1]).join(" ")}
           fill="none"
           stroke={STEEL}
-          stroke-width={e.w ?? 3.2}
+          stroke-width={e.w ?? 3.6}
           stroke-linecap="round"
           stroke-linejoin="round"
         />
@@ -132,11 +193,11 @@ function Gear(props: { ex: Exercise; pose: Pose }) {
     } else if (e.type === "pad") {
       parts.push(<Pad x={e.x!} y={e.y!} w={e.w!} h={e.h!} angle={e.angle} />);
     } else if (e.type === "pulley") {
-      parts.push(<circle cx={e.x} cy={e.y} r={e.r ?? 5} fill={PAD_FILL} stroke={STEEL} stroke-width={2.4} />);
+      parts.push(<circle cx={e.x} cy={e.y} r={e.r ?? 5} fill={PAD_FILL} stroke={STEEL} stroke-width={2.8} />);
       parts.push(<circle cx={e.x} cy={e.y} r={1.3} fill={STEEL} />);
     } else if (e.type === "stack") {
       const x = e.x!, y = e.y!, w = e.w!, h = e.h!;
-      parts.push(<rect x={x - w / 2} y={y} width={w} height={h} rx={2} fill="none" stroke={STEEL} stroke-width={2.2} />);
+      parts.push(<rect x={x - w / 2} y={y} width={w} height={h} rx={2} fill="none" stroke={STEEL} stroke-width={2.6} />);
       const rows = Math.max(2, Math.round(h / 6));
       for (let i = 1; i < rows; i++) {
         const yy = y + (h * i) / rows;
@@ -256,8 +317,9 @@ function MovementStage(props: { ex: Exercise }) {
   return (
     <div class="border-b border-[#23252f] bg-gradient-to-b from-[#0a0b0f] to-[#101219] pt-2">
       <svg viewBox="0 0 200 200" class="mx-auto block h-auto w-full max-w-[340px]" role="img" aria-label={"Movimiento: " + ex.name}>
-        <Gear ex={ex} pose={pose} />
+        <Gear ex={ex} pose={pose} layer="back" />
         <Figure ex={ex} pose={pose} />
+        <Gear ex={ex} pose={pose} layer="front" />
       </svg>
       <div class="mx-auto flex max-w-[380px] items-center gap-2 px-4 pb-3 pt-1">
         <button
