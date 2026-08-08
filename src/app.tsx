@@ -14,8 +14,17 @@ import {
   type Exercise,
   type Joint,
   type Pose
-} from "./program";
-import { fromBackup, toBackup, useStore, type State } from "./store";
+} from "./program.ts";
+import { useStore } from "./store.ts";
+import {
+  daysSinceExport,
+  emptyEntry,
+  fromBackup,
+  historyFor,
+  toBackup,
+  type SetEntry,
+  type State
+} from "./state.ts";
 
 const ACCENT = "#5b8cff";
 const BONE = "#d6d9e2";
@@ -415,15 +424,19 @@ function MovementStage(props: { ex: Exercise }) {
 /* Descanso                                                            */
 /* ------------------------------------------------------------------ */
 
+type Wake = { release: () => Promise<void> };
+
 function RestTimer(props: { seconds: number; onDone: () => void }) {
   const [left, setLeft] = useState(props.seconds);
 
+  // Con el teléfono en el bolsillo un contador que solo se ve no sirve de nada.
   useEffect(() => {
     setLeft(props.seconds);
     const id = setInterval(() => {
       setLeft((v) => {
         if (v <= 1) {
           clearInterval(id);
+          navigator.vibrate?.([140, 70, 140]);
           props.onDone();
           return 0;
         }
@@ -432,6 +445,26 @@ function RestTimer(props: { seconds: number; onDone: () => void }) {
     }, 1000);
     return () => clearInterval(id);
   }, [props.seconds]);
+
+  // La pantalla no se apaga mientras corre el descanso. Donde no exista la API
+  // —hoy, Safari en iOS con la app fuera de la pantalla de inicio— no pasa nada.
+  useEffect(() => {
+    const api = (navigator as Navigator & { wakeLock?: { request: (t: "screen") => Promise<Wake> } }).wakeLock;
+    if (!api) return;
+    let lock: Wake | null = null;
+    let done = false;
+    void api
+      .request("screen")
+      .then((l) => {
+        if (done) void l.release().catch(() => {});
+        else lock = l;
+      })
+      .catch(() => {});
+    return () => {
+      done = true;
+      void lock?.release().catch(() => {});
+    };
+  }, []);
 
   const pct = props.seconds > 0 ? left / props.seconds : 0;
 
@@ -481,7 +514,7 @@ function todayDefaultDay(): string {
 }
 
 export function App() {
-  const { state, ready, logSet, setWeight, setWeek, replace } = useStore();
+  const { state, ready, logSet, setWeight, setWeek, markExported, replace } = useStore();
 
   const [day, setDay] = useState(todayDefaultDay());
   const [openId, setOpenId] = useState<string | null>(null);
@@ -491,15 +524,15 @@ export function App() {
   const current = exerciseById(openId ?? "") ?? list[0];
 
   const week = state.week;
-  const repsFor = (ex: Exercise): number[] => state.log[slotKey(week, ex.id)] ?? new Array(ex.sets).fill(0);
   const kgFor = (ex: Exercise): number => state.weights[ex.id] ?? ex.start;
-  const doneCount = (ex: Exercise) => repsFor(ex).filter((v) => v > 0).length;
+  const entryFor = (ex: Exercise): SetEntry => state.log[slotKey(week, ex.id)] ?? emptyEntry(ex, kgFor(ex));
+  const doneCount = (ex: Exercise) => entryFor(ex).reps.filter((v) => v > 0).length;
 
   const totalSets = list.reduce((a, e) => a + e.sets, 0);
   const loggedSets = list.reduce((a, e) => a + doneCount(e), 0);
 
   function onLog(ex: Exercise, index: number, reps: number) {
-    logSet(ex, index, reps);
+    logSet(ex, index, reps, kgFor(ex));
     const after = doneCount(ex) + (reps > 0 ? 1 : -1);
     if (reps > 0 && after < ex.sets) setRest({ seconds: ex.rest, nonce: Date.now() });
     else setRest(null);
@@ -540,7 +573,7 @@ export function App() {
                 +
               </button>
             </div>
-            <DataMenu state={state} onReplace={replace} />
+            <DataMenu state={state} onReplace={replace} onExported={markExported} />
           </div>
         </div>
 
@@ -584,7 +617,7 @@ export function App() {
 
           <div class="flex flex-col gap-1.5">
             {list.map((ex, i) => {
-              const reps = repsFor(ex);
+              const reps = entryFor(ex).reps;
               const n = reps.filter((v) => v > 0).length;
               const done = n >= ex.sets;
               const active = current && ex.id === current.id;
@@ -629,7 +662,17 @@ export function App() {
           </div>
         </div>
 
-        {current ? <Detail ex={current} kg={kgFor(current)} reps={repsFor(current)} previous={state.log[slotKey(week - 1, current.id)]} onLog={onLog} onWeight={(kg) => setWeight(current.id, kg)} /> : null}
+        {current ? (
+          <Detail
+            ex={current}
+            kg={kgFor(current)}
+            entry={entryFor(current)}
+            previous={state.log[slotKey(week - 1, current.id)]}
+            history={historyFor(state, current.id).filter((h) => h.week !== week)}
+            onLog={onLog}
+            onWeight={(kg) => setWeight(current.id, kg)}
+          />
+        ) : null}
       </div>
 
       <p class="mx-auto max-w-[1240px] px-5 pb-10 text-[12px] leading-relaxed text-[#5f6377]">
@@ -647,13 +690,18 @@ export function App() {
 function Detail(props: {
   ex: Exercise;
   kg: number;
-  reps: number[];
-  previous: number[] | undefined;
+  entry: SetEntry;
+  previous: SetEntry | undefined;
+  history: { week: number; entry: SetEntry }[];
   onLog: (ex: Exercise, index: number, reps: number) => void;
   onWeight: (kg: number) => void;
 }) {
-  const { ex, kg, reps, previous } = props;
-  const prog = progressionFor(ex, kg, previous);
+  const { ex, kg, entry, previous } = props;
+  const reps = entry.reps;
+  // Comparar contra la semana pasada solo tiene sentido si el peso era el mismo:
+  // 12 reps con 30 kg no dicen nada sobre si ya podés subir desde 40.
+  const sameLoad = previous && previous.kg.every((v, i) => (previous.reps[i] > 0 ? v === kg : true));
+  const prog = progressionFor(ex, kg, sameLoad ? previous.reps : undefined);
   const options: number[] = [];
   for (let r = Math.max(1, ex.repMin - 2); r <= ex.repMax + 2; r++) options.push(r);
   const nextSet = reps.filter((v) => v > 0).length + 1;
@@ -733,7 +781,7 @@ function Detail(props: {
               <span class="font-mono text-[10px] tracking-[0.08em] text-[#5f6377]">S{i + 1}</span>
               {value > 0 ? (
                 <span class="font-mono text-[12.5px]">
-                  {value} reps <span class="text-[#5f6377]">× {kg} kg</span>
+                  {value} reps <span class="text-[#5f6377]">× {entry.kg[i]} kg</span>
                 </span>
               ) : (
                 <span class="flex flex-wrap gap-1">
@@ -764,6 +812,8 @@ function Detail(props: {
           ))}
         </div>
       </div>
+
+      <History rows={props.history} />
 
       <div class="border-b border-[#23252f] px-5 py-4">
         <div class="mb-2.5 font-mono text-[9.5px] uppercase tracking-[0.16em] text-[#5f6377]">Cómo se hace</div>
@@ -808,19 +858,29 @@ function Detail(props: {
  * o se cambia de teléfono, no hay servidor del que recuperarlo. El export a JSON
  * es la única copia de seguridad.
  */
-function DataMenu(props: { state: State; onReplace: (next: State) => void }) {
+function DataMenu(props: { state: State; onReplace: (next: State) => void; onExported: () => void }) {
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const file = useRef<HTMLInputElement>(null);
 
+  const days = daysSinceExport(props.state, Date.now());
+  const logged = Object.keys(props.state.log).length;
+  const stale = logged > 0 && (days === null || days >= 14);
+
   function onExport() {
-    const blob = new Blob([JSON.stringify(toBackup(props.state), null, 2)], { type: "application/json" });
+    const now = new Date();
+    const blob = new Blob([JSON.stringify(toBackup(props.state, now.toISOString()), null, 2)], {
+      type: "application/json"
+    });
+    // toBackup sella lastExport adentro del archivo; markExported hace lo mismo
+    // en el estado vivo. Los dos usan este mismo momento.
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
     a.download = "rutina-" + new Date().toLocaleDateString("sv-SE") + ".json";
     a.click();
     URL.revokeObjectURL(url);
+    props.onExported();
     setOpen(false);
   }
 
@@ -849,14 +909,19 @@ function DataMenu(props: { state: State; onReplace: (next: State) => void }) {
         onClick={() => setOpen(!open)}
       >
         DATOS
+        {stale ? <span class="ml-1.5 inline-block h-1.5 w-1.5 rounded-full bg-[#d9a441] align-middle" /> : null}
       </button>
 
       {open ? (
         <>
           <button type="button" class="fixed inset-0 z-30 cursor-default" aria-label="Cerrar" onClick={() => setOpen(false)} />
           <div class="absolute right-0 z-40 mt-2 w-64 rounded-lg border border-[#2e3140] bg-[#16171d] p-3 shadow-2xl">
-            <p class="mb-2.5 text-[11.5px] leading-relaxed text-[#5f6377]">
-              El historial se guarda solo en este navegador. Exportá cada tanto.
+            <p class={"mb-2.5 text-[11.5px] leading-relaxed " + (stale ? "text-[#d9a441]" : "text-[#5f6377]")}>
+              {stale
+                ? days === null
+                  ? "Todavía no exportaste nunca. Si se borran los datos del sitio, se pierde el historial."
+                  : "Hace " + days + " días que no exportás. El historial solo vive en este navegador."
+                : "El historial se guarda solo en este navegador. Exportá cada tanto."}
             </p>
             <button
               type="button"
@@ -939,6 +1004,66 @@ function RealPhotos(props: { ex: Exercise }) {
             Referencia del movimiento, no de tu gimnasio: la máquina de la foto puede ser otra.
           </p>
         </>
+      ) : null}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Historial                                                           */
+/* ------------------------------------------------------------------ */
+
+/**
+ * La app venía guardando todas las semanas y no mostraba ninguna: lo único que
+ * se veía era la semana en curso. Acá se lee lo que ya estaba guardado.
+ */
+function History(props: { rows: { week: number; entry: SetEntry }[] }) {
+  const [open, setOpen] = useState(false);
+  const rows = props.rows.slice(0, 12);
+
+  if (rows.length === 0) return null;
+
+  return (
+    <div class="border-b border-[#23252f] px-5 py-4">
+      <button
+        type="button"
+        class="flex w-full items-center justify-between font-mono text-[9.5px] uppercase tracking-[0.16em] text-[#5f6377] hover:text-[#9296a8]"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+      >
+        <span>
+          Historial <span class="text-[#9296a8]">{props.rows.length}</span>{" "}
+          {props.rows.length === 1 ? "semana" : "semanas"}
+        </span>
+        <span class="text-[13px] leading-none">{open ? "−" : "+"}</span>
+      </button>
+
+      {open ? (
+        <div class="mt-3 flex flex-col gap-1.5">
+          {rows.map((row) => {
+            const done = row.entry.reps.filter((v) => v > 0);
+            // Casi siempre es un solo peso en toda la sesión; solo se listan los
+            // distintos cuando de verdad hubo más de uno.
+            const loads = [...new Set(row.entry.reps.map((v, i) => (v > 0 ? row.entry.kg[i] : null)).filter((v) => v !== null))];
+            return (
+              <div
+                key={row.week}
+                class="grid grid-cols-[64px_1fr_auto] items-baseline gap-2 rounded-lg border border-[#23252f] bg-[#16171d] px-2.5 py-2"
+              >
+                <span class="font-mono text-[10px] uppercase tracking-[0.08em] text-[#5f6377]">
+                  Sem {row.week}
+                </span>
+                <span class="font-mono text-[12px] text-[#9296a8]">{done.join(" · ")}</span>
+                <span class="font-mono text-[11px] text-[#5f6377]">{loads.join("/")} kg</span>
+              </div>
+            );
+          })}
+          {props.rows.length > rows.length ? (
+            <p class="mt-1 font-mono text-[10px] tracking-[0.06em] text-[#5f6377]">
+              + {props.rows.length - rows.length} semanas más en el export
+            </p>
+          ) : null}
+        </div>
       ) : null}
     </div>
   );

@@ -28,8 +28,9 @@ No se tocó una sola coordenada de `program.ts`: en `t=0` y `t=1` el resultado e
 **exactamente** la pose original (error máximo 0,0000), así que la geometría
 validada contra fotos sigue intacta. Lo único que cambia es el camino entre las
 dos. El largo de los miembros ya no se sale del rango de las poses (drift máximo
-0,07 px contra 25 px antes), y 17 de los 18 ejercicios tienen ahora una
-trayectoria distinta de la recta, de hasta 39 px de separación.
+0,07 px contra 25 px antes), y 16 de los 18 ejercicios se separan de la recta más
+de 1 px, hasta 39 px. Los dos que no: en los gemelos el cuerpo entero se traslada
+y en el crunch el recorrido ya era prácticamente recto.
 
 Costo: ~60 líneas en `program.ts`, cero datos nuevos, cero dependencias.
 
