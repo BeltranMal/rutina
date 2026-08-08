@@ -220,9 +220,11 @@ function Pad(props: { x: number; y: number; w: number; h: number; angle?: number
 const ON_TOP = new Set(["grip", "bar", "rollerPad", "dumbbell"]);
 
 function onTop(e: Equip): boolean {
-  // Excepción: el arnés de hombros de la hack y los gemelos va detrás, porque
-  // encima le tapa la cabeza a la figura.
-  if (e.type === "rollerPad" && e.at === "shoulder") return false;
+  // El arnés de hombros de la hack y de los gemelos queda detrás porque encima
+  // le tapa la cara a la figura. Va marcado pieza por pieza en program.ts: la
+  // regla "todo rodillo en el hombro va atrás" también mandaba atrás el del
+  // crunch abdominal, que sí tiene que verse apoyado sobre los hombros.
+  if (e.behind) return false;
   return ON_TOP.has(e.type);
 }
 
