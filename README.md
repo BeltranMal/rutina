@@ -14,9 +14,16 @@ offline una vez que la visitaste.
 - **Progresión doble.** Empezás en el extremo bajo del rango de reps. Cuando
   llegás al extremo alto en todas las series, la próxima sesión subís el peso y
   volvés al extremo bajo. La app te avisa cuándo toca.
+- **Cada serie guarda su propio peso.** Si subís el peso a mitad de la sesión,
+  las series ya registradas conservan el que tenían. El historial de cada
+  ejercicio se ve en el detalle, semana por semana.
 - **Los datos son tuyos y solo tuyos.** El historial vive en el IndexedDB de este
   navegador. No hay backup automático: el botón `DATOS → EXPORTAR JSON` es la
   única copia. Si borrás los datos del sitio o cambiás de teléfono, se pierde.
+  La app te avisa con un punto ámbar cuando hace más de dos semanas que no
+  exportás.
+- **En el gimnasio.** El descanso vibra al terminar y la pantalla no se apaga
+  mientras corre.
 - **Offline.** Un service worker cachea la app. El HTML se pide primero a la red
   (para que un deploy nuevo se vea al toque) y cae al caché si no hay señal.
 
@@ -26,6 +33,7 @@ offline una vez que la visitaste.
 npm install
 npm run dev        # http://localhost:5173
 npm run typecheck
+npm test           # runner de Node, sin dependencias
 npm run build      # a dist/, con base /rutina/
 ```
 
@@ -37,7 +45,9 @@ Push a `main` construye y publica en GitHub Pages (`.github/workflows/deploy.yml
 | --- | --- |
 | `src/program.ts` | Datos puros: los 3 días, los 18 ejercicios, la geometría de cada máquina y las dos poses de cada movimiento. Sin DOM ni imports. |
 | `src/app.tsx` | Toda la UI, incluido el renderer SVG (`Figure`, `Gear`, `MovementStage`). |
-| `src/store.ts` | Estado en IndexedDB, saneado de lo que entra y export/import JSON. |
+| `src/state.ts` | Lógica pura del estado: saneado de lo que entra, migraciones y export/import. Sin DOM ni Preact, por eso se puede testear con Node pelado. |
+| `src/store.ts` | El mismo estado, guardado en IndexedDB. |
+| `test/` | Los tests. Protegen la geometría de las poses y el saneado del estado. |
 | `public/sw.js` | Service worker, sin dependencias. |
 | `public/ref/` | Dos fotos por ejercicio, de dominio público. Se bajan solo si abrís el panel. Se regeneran con `node scripts/fetch-ref-photos.mjs`. |
 

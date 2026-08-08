@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useState } from "preact/hooks";
-import { PROGRAM, exerciseById, slotKey, type Exercise } from "./program";
-
-export type State = {
-  week: number;
-  log: Record<string, number[]>;
-  weights: Record<string, number>;
-};
-
-export const EMPTY: State = { week: 1, log: {}, weights: {} };
+import { exerciseById, slotKey, type Exercise } from "./program.ts";
+import {
+  EMPTY,
+  clampKg,
+  clampReps,
+  clampWeek,
+  emptyEntry,
+  hasWork,
+  sanitize,
+  type State
+} from "./state.ts";
 
 const DB = "rutina";
 const STORE = "state";
@@ -33,84 +35,13 @@ function tx<T>(mode: IDBTransactionMode, run: (s: IDBObjectStore) => IDBRequest<
   );
 }
 
-/* ------------------------------------------------------------------ */
-/* Saneado                                                             */
-/* ------------------------------------------------------------------ */
-
-function clampWeek(v: unknown): number {
-  const n = Math.floor(Number(v));
-  return Number.isFinite(n) ? Math.max(1, Math.min(520, n)) : 1;
-}
-
-function clampKg(v: unknown, fallback: number): number {
-  const n = Math.round(Number(v) * 2) / 2;
-  return Number.isFinite(n) ? Math.max(0, Math.min(1000, n)) : fallback;
-}
-
-function clampReps(raw: unknown, sets: number): number[] {
-  const src = Array.isArray(raw) ? raw : [];
-  const out = new Array(sets).fill(0);
-  for (let i = 0; i < sets; i++) {
-    const v = Number(src[i]);
-    out[i] = Number.isFinite(v) && v > 0 ? Math.min(300, Math.floor(v)) : 0;
-  }
-  return out;
-}
-
-/**
- * Toda entrada al store pasa por acá: lo que viene de IndexedDB, de un JSON
- * importado y del arranque en frío. Descarta ejercicios que ya no existen en el
- * programa, así un export viejo no rompe la app cuando cambian las máquinas.
- */
-export function sanitize(raw: unknown): State {
-  const src = (raw && typeof raw === "object" ? raw : {}) as Partial<State>;
-
-  const weights: Record<string, number> = {};
-  for (const ex of PROGRAM.exercises) weights[ex.id] = ex.start;
-  for (const [id, kg] of Object.entries(src.weights ?? {})) {
-    const ex = exerciseById(id);
-    if (ex) weights[ex.id] = clampKg(kg, ex.start);
-  }
-
-  const log: Record<string, number[]> = {};
-  for (const [slot, reps] of Object.entries(src.log ?? {})) {
-    const [prefix, exerciseId] = String(slot).split(":");
-    const ex = exerciseById(exerciseId ?? "");
-    // La clave la arma slotKey: "w" + semana + ":" + ejercicio.
-    if (!ex || !/^w\d+$/.test(prefix ?? "")) continue;
-    const clean = clampReps(reps, ex.sets);
-    if (clean.some((v) => v > 0)) log[slot] = clean;
-  }
-
-  return { week: clampWeek(src.week), log, weights };
-}
-
-/* ------------------------------------------------------------------ */
-/* Export / import                                                     */
-/* ------------------------------------------------------------------ */
-
-export type Backup = { app: "rutina"; version: 1; exportedAt: string; state: State };
-
-export function toBackup(state: State): Backup {
-  return { app: "rutina", version: 1, exportedAt: new Date().toISOString(), state };
-}
-
-export function fromBackup(text: string): State {
-  const parsed = JSON.parse(text) as Partial<Backup> & Partial<State>;
-  // Acepta tanto el sobre { app, version, state } como un State pelado.
-  return sanitize(parsed.state ?? parsed);
-}
-
-/* ------------------------------------------------------------------ */
-/* Hook                                                                */
-/* ------------------------------------------------------------------ */
-
 export type Store = {
   state: State;
   ready: boolean;
-  logSet: (ex: Exercise, setIndex: number, reps: number) => void;
+  logSet: (ex: Exercise, setIndex: number, reps: number, kg: number) => void;
   setWeight: (exerciseId: string, kg: number) => void;
   setWeek: (week: number) => void;
+  markExported: () => void;
   replace: (next: State) => void;
 };
 
@@ -134,55 +65,56 @@ export function useStore(): Store {
     };
   }, []);
 
-  const commit = useCallback(
+  const persist = useCallback(
     (next: State) => {
-      setState(next);
       if (writable) void tx("readwrite", (s) => s.put(next, KEY)).catch(() => setWritable(false));
+      return next;
     },
     [writable]
   );
 
+  const update = useCallback((fn: (prev: State) => State) => setState((prev) => persist(fn(prev))), [persist]);
+
   const logSet = useCallback(
-    (ex: Exercise, setIndex: number, reps: number) => {
+    (ex: Exercise, setIndex: number, reps: number, kg: number) => {
       if (setIndex < 0 || setIndex >= ex.sets) return;
-      setState((prev) => {
+      update((prev) => {
         const slot = slotKey(prev.week, ex.id);
-        const next = clampReps(prev.log[slot], ex.sets);
-        next[setIndex] = Math.max(0, Math.min(300, Math.floor(reps)));
+        const current = prev.log[slot] ?? emptyEntry(ex, prev.weights[ex.id] ?? ex.start);
+        const entry = {
+          reps: clampReps(current.reps, ex.sets),
+          kg: [...current.kg]
+        };
+        entry.reps[setIndex] = Math.max(0, Math.min(300, Math.floor(reps)));
+        // La serie se queda con el peso que tenía puesto en el momento; si se
+        // deshace vuelve a seguir al peso propuesto del ejercicio.
+        entry.kg[setIndex] = clampKg(kg, ex.start);
         const log = { ...prev.log };
-        if (next.some((v) => v > 0)) log[slot] = next;
+        if (hasWork(entry)) log[slot] = entry;
         else delete log[slot];
-        const updated = { ...prev, log };
-        if (writable) void tx("readwrite", (s) => s.put(updated, KEY)).catch(() => setWritable(false));
-        return updated;
+        return { ...prev, log };
       });
     },
-    [writable]
+    [update]
   );
 
   const setWeight = useCallback(
     (exerciseId: string, kg: number) => {
       const ex = exerciseById(exerciseId);
       if (!ex) return;
-      setState((prev) => {
-        const updated = { ...prev, weights: { ...prev.weights, [ex.id]: clampKg(kg, ex.start) } };
-        if (writable) void tx("readwrite", (s) => s.put(updated, KEY)).catch(() => setWritable(false));
-        return updated;
-      });
+      update((prev) => ({ ...prev, weights: { ...prev.weights, [ex.id]: clampKg(kg, ex.start) } }));
     },
-    [writable]
+    [update]
   );
 
-  const setWeek = useCallback(
-    (week: number) => {
-      setState((prev) => {
-        const updated = { ...prev, week: clampWeek(week) };
-        if (writable) void tx("readwrite", (s) => s.put(updated, KEY)).catch(() => setWritable(false));
-        return updated;
-      });
-    },
-    [writable]
+  const setWeek = useCallback((week: number) => update((prev) => ({ ...prev, week: clampWeek(week) })), [update]);
+
+  const markExported = useCallback(
+    () => update((prev) => ({ ...prev, lastExport: new Date().toISOString() })),
+    [update]
   );
 
-  return { state, ready, logSet, setWeight, setWeek, replace: commit };
+  const replace = useCallback((next: State) => update(() => next), [update]);
+
+  return { state, ready, logSet, setWeight, setWeek, markExported, replace };
 }
