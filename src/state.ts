@@ -98,14 +98,26 @@ export function sanitize(raw: unknown): State {
 
 export type Backup = { app: "rutina"; version: 2; exportedAt: string; state: State };
 
+/**
+ * El estado que va adentro del archivo queda sellado con la misma fecha del
+ * export. Si se guardara el `lastExport` que había *antes* de exportar,
+ * reimportar el archivo borraría la marca y el aviso de copia vieja volvería a
+ * aparecer enseguida.
+ */
 export function toBackup(state: State, at: string): Backup {
-  return { app: "rutina", version: 2, exportedAt: at, state };
+  return { app: "rutina", version: 2, exportedAt: at, state: { ...state, lastExport: at } };
 }
 
 export function fromBackup(text: string): State {
   const parsed = JSON.parse(text) as Partial<Backup> & Partial<State>;
   // Acepta tanto el sobre { app, version, state } como un State pelado.
-  return sanitize(parsed.state ?? parsed);
+  const state = sanitize(parsed.state ?? parsed);
+  // Los export de la versión 1 no guardaban lastExport adentro del estado, pero
+  // sí la fecha en el sobre: sirve igual y evita avisar de una copia que existe.
+  if (state.lastExport === null && typeof parsed.exportedAt === "string" && !Number.isNaN(Date.parse(parsed.exportedAt))) {
+    return { ...state, lastExport: parsed.exportedAt };
+  }
+  return state;
 }
 
 /** Días desde el último export. null si nunca se exportó. */

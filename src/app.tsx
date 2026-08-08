@@ -872,6 +872,8 @@ function DataMenu(props: { state: State; onReplace: (next: State) => void; onExp
     const blob = new Blob([JSON.stringify(toBackup(props.state, now.toISOString()), null, 2)], {
       type: "application/json"
     });
+    // toBackup sella lastExport adentro del archivo; markExported hace lo mismo
+    // en el estado vivo. Los dos usan este mismo momento.
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;

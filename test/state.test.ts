@@ -67,15 +67,30 @@ test("recorta valores fuera de rango", () => {
   assert.equal(kg[2], 40.5);
 });
 
-test("el export vuelve igual al importarlo", () => {
+test("el export vuelve igual al importarlo, salvo la fecha, que se actualiza", () => {
   const original = sanitize({
     week: 4,
     log: { [slotKey(4, HACK.id)]: { reps: [10, 10, 9], kg: [40, 40, 42.5] } },
     weights: { [HACK.id]: 42.5 },
     lastExport: "2026-08-01T00:00:00.000Z"
   });
-  const back = fromBackup(JSON.stringify(toBackup(original, "2026-08-07T00:00:00.000Z")));
-  assert.deepEqual(back, original);
+  const at = "2026-08-07T00:00:00.000Z";
+  const back = fromBackup(JSON.stringify(toBackup(original, at)));
+  assert.deepEqual(back, { ...original, lastExport: at });
+});
+
+test("el archivo exportado se lleva la fecha del export adentro", () => {
+  const at = "2026-08-07T00:00:00.000Z";
+  const backup = toBackup(sanitize({ week: 1 }), at);
+  assert.equal(backup.state.lastExport, at, "el estado guardado quedó con la marca vieja");
+  // Reimportarlo no puede hacer reaparecer el aviso de copia vieja.
+  assert.equal(fromBackup(JSON.stringify(backup)).lastExport, at);
+});
+
+test("un export viejo sin lastExport usa la fecha del sobre", () => {
+  const at = "2026-08-01T00:00:00.000Z";
+  const v1 = { app: "rutina", version: 1, exportedAt: at, state: { week: 1, log: {}, weights: {} } };
+  assert.equal(fromBackup(JSON.stringify(v1)).lastExport, at);
 });
 
 test("también acepta un State pelado, sin el sobre del export", () => {
