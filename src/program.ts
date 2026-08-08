@@ -15,6 +15,8 @@ export type Equip = {
   back?: [number, number, number, number];
   pad?: [number, number, number, number];
   wide?: boolean;
+  /** Dibujar detrás de la figura aunque sea una pieza de contacto. */
+  behind?: boolean;
 };
 
 export type Exercise = {
@@ -133,6 +135,7 @@ export const PROGRAM: { days: Day[]; exercises: Exercise[] } = {
         {
           "type": "rollerPad",
           "at": "shoulder",
+          "behind": true,
           "r": 6
         }
       ],
@@ -1604,6 +1607,7 @@ export const PROGRAM: { days: Day[]; exercises: Exercise[] } = {
         {
           "type": "rollerPad",
           "at": "shoulder",
+          "behind": true,
           "r": 8
         }
       ],
